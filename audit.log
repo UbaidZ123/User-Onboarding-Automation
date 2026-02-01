@@ -1,0 +1,13 @@
+2026-02-01 14:03:49,802Z | INFO | CreateAccount | username=jdoe department=Finance
+2026-02-01 14:03:49,803Z | INFO | AssignRole | username=jdoe role=Analyst
+2026-02-01 14:03:49,803Z | INFO | GrantAccess | username=jdoe permissions=['Email', 'FinanceDrive', 'VPN']
+2026-02-01 14:03:49,803Z | INFO | EnforceMFA | username=jdoe enabled=true
+2026-02-01 14:03:49,803Z | INFO | PasswordPolicy | username=jdoe passed=true
+2026-02-01 14:27:03,671Z | INFO | CreateAccount | username=jdoe department=Finance
+2026-02-01 14:27:03,672Z | INFO | AssignRole | username=jdoe role=Analyst
+2026-02-01 14:27:03,672Z | INFO | GrantAccess | username=jdoe permissions=['Email', 'FinanceDrive', 'VPN']
+2026-02-01 14:27:03,672Z | INFO | EnforceMFA | username=jdoe enabled=true
+2026-02-01 14:27:03,672Z | INFO | PasswordPolicy | username=jdoe passed=true
+2026-02-01 14:27:08,383Z | INFO | DisableAccount | username=jdoe
+2026-02-01 14:27:08,383Z | INFO | RevokeAccess | username=jdoe revoked=all
+2026-02-01 14:27:08,383Z | INFO | InvalidateSessions | username=jdoe done=true

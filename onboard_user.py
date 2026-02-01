@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """
-User Onboarding & Access Automation (RBAC + Audit Logging)
+Enterprise User Onboarding Automation (RBAC + Audit Logging)
 
-This script simulates an enterprise onboarding workflow:
-- Loads roles/permissions from roles.json
-- Accepts a user request via --user-file or CLI flags
-- Validates input and password strength
-- Assigns role-based permissions (least privilege)
-- Logs all actions for auditability
+What this simulates:
+- Onboarding: validate request, assign role-based access, enforce MFA, write audit log
+- Offboarding: revoke access and log actions (often more security-critical than onboarding)
 
-No external dependencies are needed.
+No external dependencies. CLI-first because internal IT automation tools are commonly CLI-based.
 """
 
 from __future__ import annotations
@@ -24,27 +21,24 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-
 # Logging (Audit Trail)
+def _utc_time_tuple(*args):
+    return datetime.utcnow().timetuple()
+
+
 def setup_audit_logger(log_path: str = "audit.log") -> logging.Logger:
     logger = logging.getLogger("audit")
     logger.setLevel(logging.INFO)
 
-    # This will avoid duplicate handlers if re-imported/run in some environments
     if not logger.handlers:
         formatter = logging.Formatter("%(asctime)sZ | %(levelname)s | %(message)s")
-        formatter.converter = time_gmt  # ensure UTC timestamps in log
+        formatter.converter = _utc_time_tuple
 
         file_handler = logging.FileHandler(log_path, encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
     return logger
-
-
-def time_gmt(*args):
-    # UTC time formatting for consistent audit logs
-    return datetime.utcnow().timetuple()
 
 
 # Data Models
@@ -70,8 +64,26 @@ def load_json_file(path: str) -> Dict[str, Any]:
         return json.load(f)
 
 
+def load_roles(path: str) -> Dict[str, RoleConfig]:
+    raw = load_json_file(path)
+    roles: Dict[str, RoleConfig] = {}
+
+    for role_name, cfg in raw.items():
+        permissions = cfg.get("permissions", [])
+        requires_mfa = bool(cfg.get("requires_mfa", True))
+
+        if not isinstance(permissions, list) or not all(isinstance(x, str) for x in permissions):
+            raise ValueError(f"Invalid permissions list for role '{role_name}'")
+
+        roles[role_name] = RoleConfig(
+            permissions=permissions,
+            requires_mfa=requires_mfa
+        )
+
+    return roles
+
+
 def validate_username(username: str) -> Optional[str]:
-    # Simple enterprise-style username rule: lowercase letters, digits, dot, underscore; 3-20 chars
     if not re.fullmatch(r"[a-z0-9._]{3,20}", username):
         return "Username must be 3–20 chars and contain only lowercase letters, digits, '.' or '_'"
     return None
@@ -84,18 +96,15 @@ def validate_department(dept: str) -> Optional[str]:
 
 
 def validate_password_strength(password: str) -> Optional[str]:
-    # Basic but clear password policy (adjustable)
     rules = [
         (len(password) >= 10, "Password must be at least 10 characters"),
         (re.search(r"[A-Z]", password) is not None, "Password must include an uppercase letter"),
         (re.search(r"[a-z]", password) is not None, "Password must include a lowercase letter"),
         (re.search(r"[0-9]", password) is not None, "Password must include a digit"),
-        (re.search(r"[^A-Za-z0-9]", password) is not None, "Password must include a symbol")
+        (re.search(r"[^A-Za-z0-9]", password) is not None, "Password must include a symbol"),
     ]
     failures = [msg for ok, msg in rules if not ok]
-    if failures:
-        return "; ".join(failures)
-    return None
+    return "; ".join(failures) if failures else None
 
 
 def parse_user_request_from_dict(data: Dict[str, Any]) -> Tuple[Optional[UserRequest], List[str]]:
@@ -134,68 +143,88 @@ def parse_user_request_from_dict(data: Dict[str, Any]) -> Tuple[Optional[UserReq
     return UserRequest(username=username, department=department, role=role, password=password), []
 
 
-def load_roles(path: str) -> Dict[str, RoleConfig]:
-    raw = load_json_file(path)
-    roles: Dict[str, RoleConfig] = {}
-    for role_name, cfg in raw.items():
-        permissions = cfg.get("permissions", [])
-        requires_mfa = bool(cfg.get("requires_mfa", True))
-
-        if not isinstance(permissions, list) or not all(isinstance(x, str) for x in permissions):
-            raise ValueError(f"Invalid permissions list for role '{role_name}'")
-
-        roles[role_name] = RoleConfig(permissions=permissions, requires_mfa=requires_mfa)
-    return roles
+def print_summary(title: str, lines: List[Tuple[str, str]]) -> None:
+    width = max(len(k) for k, _ in lines) if lines else 10
+    print(title)
+    for k, v in lines:
+        print(f"{k:<{width}} : {v}")
 
 
-# Onboarding Simulation
+# Core Actions
 def onboard_user(user: UserRequest, roles: Dict[str, RoleConfig], audit: logging.Logger) -> Dict[str, Any]:
     if user.role not in roles:
-        audit.error(f"Rejected onboarding for '{user.username}': unknown role '{user.role}'")
+        audit.error(f"Rejected onboarding | username={user.username} reason=unknown_role role={user.role}")
         raise ValueError(f"Unknown role '{user.role}'. Valid roles: {', '.join(sorted(roles.keys()))}")
 
     role_cfg = roles[user.role]
 
-    # Account creation
+    # Simulated workflow steps (no real systems touched)
     audit.info(f"CreateAccount | username={user.username} department={user.department}")
     audit.info(f"AssignRole | username={user.username} role={user.role}")
 
-    # Least privilege via RBAC config
+    # RBAC permissions (least privilege as defined in roles.json)
     permissions = role_cfg.permissions
     audit.info(f"GrantAccess | username={user.username} permissions={permissions}")
 
-    # Enforce MFA if required by policy
-    if role_cfg.requires_mfa:
-        audit.info(f"EnforceMFA | username={user.username} enabled=true")
-        mfa_enabled = True
-    else:
-        audit.info(f"EnforceMFA | username={user.username} enabled=false")
-        mfa_enabled = False
+    # MFA policy
+    mfa_enabled = bool(role_cfg.requires_mfa)
+    audit.info(f"EnforceMFA | username={user.username} enabled={str(mfa_enabled).lower()}")
 
-    # No logging passwords, only log that password policy passed.
+    # Never log passwords; only log that policy passed.
     audit.info(f"PasswordPolicy | username={user.username} passed=true")
 
-    # Return a summary object (for printing / potential future extension)
     return {
+        "action": "onboard",
         "username": user.username,
         "department": user.department,
         "role": user.role,
         "permissions": permissions,
-        "mfa_enabled": mfa_enabled
+        "mfa_enabled": mfa_enabled,
+    }
+
+
+def offboard_user(username: str, audit: logging.Logger) -> Dict[str, Any]:
+    """
+    Offboarding is often more security-critical than onboarding.
+    We simulate:
+    - disabling account
+    - revoking access
+    - recording an audit trail
+    """
+    msg = validate_username(username)
+    if msg:
+        audit.error(f"Rejected offboarding | username={username} reason=invalid_username")
+        raise ValueError(msg)
+
+    # Simulated workflow steps
+    audit.info(f"DisableAccount | username={username}")
+    audit.info(f"RevokeAccess | username={username} revoked=all")
+    audit.info(f"InvalidateSessions | username={username} done=true")
+
+    return {
+        "action": "offboard",
+        "username": username,
+        "revoked": "all",
+        "account_disabled": True,
+        "sessions_invalidated": True,
     }
 
 # CLI
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Simulate user onboarding with RBAC + audit logging (recruiter-friendly mini project)."
+        description="Enterprise onboarding/offboarding simulation with RBAC + audit logging."
     )
-    p.add_argument("--roles-file", default="roles.json", help="Path to roles config JSON (default: roles.json)")
-    p.add_argument("--user-file", help="Path to a user request JSON (e.g., users.json)")
+    p.add_argument("--roles-file", default="roles.json", help="Path to roles JSON (default: roles.json)")
+    p.add_argument("--user-file", help="Path to onboarding request JSON (e.g., users.json)")
 
+    # Onboarding via CLI args (if no --user-file)
     p.add_argument("--username", help="Username (lowercase letters/digits/._, 3-20 chars)")
     p.add_argument("--department", help="Department name (e.g., Finance)")
     p.add_argument("--role", help="Role name (must exist in roles.json)")
     p.add_argument("--password", help="Password (min 10 chars, upper/lower/digit/symbol)")
+
+    # Offboarding
+    p.add_argument("--offboard", metavar="USERNAME", help="Offboard a user (revoke access + disable account)")
 
     return p
 
@@ -204,13 +233,34 @@ def main() -> int:
     args = build_arg_parser().parse_args()
     audit = setup_audit_logger("audit.log")
 
+    # Offboarding path
+    if args.offboard:
+        try:
+            summary = offboard_user(args.offboard.strip(), audit)
+        except Exception as e:
+            print(f"[ERROR] Offboarding failed: {e}", file=sys.stderr)
+            return 1
+
+        print("Offboarding Completed Successfully")
+        print_summary(
+            "Summary",
+            [
+                ("User", summary["username"]),
+                ("Account Disabled", str(summary["account_disabled"])),
+                ("Access Revoked", summary["revoked"]),
+                ("Sessions Invalidated", str(summary["sessions_invalidated"])),
+            ],
+        )
+        print("\nAudit log written to: audit.log")
+        return 0
+
+    # Onboarding path (needs roles + user request)
     try:
         roles = load_roles(args.roles_file)
     except Exception as e:
         print(f"[ERROR] Failed to load roles: {e}", file=sys.stderr)
         return 2
 
-    # Input can come from a JSON file or CLI args
     user_data: Dict[str, Any] = {}
     if args.user_file:
         try:
@@ -219,40 +269,39 @@ def main() -> int:
             print(f"[ERROR] Failed to load user file: {e}", file=sys.stderr)
             return 2
     else:
-        # Gather from CLI flags
         user_data = {
             "username": args.username or "",
             "department": args.department or "",
             "role": args.role or "",
-            "password": args.password or ""
+            "password": args.password or "",
         }
 
     user_req, errors = parse_user_request_from_dict(user_data)
     if errors:
-        audit.error(f"Rejected onboarding: validation errors={errors}")
+        audit.error(f"Rejected onboarding | reason=validation_errors errors={errors}")
         print("[VALIDATION FAILED]")
         for err in errors:
             print(f"- {err}")
-        print("\nTip: Try running with --user-file users.json or pass all CLI args.")
+        print("\nTip: Try --user-file users.json or pass all required CLI args.")
         return 1
 
-    # Perform onboarding simulation
     try:
         summary = onboard_user(user_req, roles, audit)
     except Exception as e:
         print(f"[ERROR] Onboarding failed: {e}", file=sys.stderr)
         return 1
 
-    # Print a clean summary
     print("Onboarding Completed Successfully")
-    print(f"User:       {summary['username']}")
-    print(f"Department: {summary['department']}")
-    print(f"Role:       {summary['role']}")
-    print(f"MFA:        {'Enabled' if summary['mfa_enabled'] else 'Disabled'}")
-    print("Access:")
-    for perm in summary["permissions"]:
-        print(f"  - {perm}")
-
+    print_summary(
+        "Summary",
+        [
+            ("User", summary["username"]),
+            ("Department", summary["department"]),
+            ("Role", summary["role"]),
+            ("MFA", "Enabled" if summary["mfa_enabled"] else "Disabled"),
+            ("Access", ", ".join(summary["permissions"])),
+        ],
+    )
     print("\nAudit log written to: audit.log")
     return 0
 
