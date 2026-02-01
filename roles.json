@@ -1,0 +1,19 @@
+{
+    "Analyst": {
+      "permissions": ["Email", "FinanceDrive", "VPN"],
+      "requires_mfa": true
+    },
+    "HR": {
+      "permissions": ["Email", "HRDrive", "VPN"],
+      "requires_mfa": true
+    },
+    "IT_Support": {
+      "permissions": ["Email", "TicketingSystem", "EndpointManagement", "VPN"],
+      "requires_mfa": true
+    },
+    "IT_Admin": {
+      "permissions": ["AllSystems", "DirectoryAdmin", "SecurityConsole", "VPN"],
+      "requires_mfa": true
+    }
+  }
+  
